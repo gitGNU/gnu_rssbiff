@@ -1,0 +1,492 @@
+#!/usr/bin/perl -w
+
+#
+# Version 2.0
+#
+# imapbiff: check for new mail in an imap account.
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Copyright 2000 Michael Arndt
+# Copyright 2007 Enrique D. Bosch 'presi' (improvements)
+
+use strict;
+use IO::Socket;
+use Getopt::Std;
+use POSIX;
+use Tk;
+use Tk::PNG;
+use vars qw($opt_h $opt_u $opt_d $opt_s $opt_q $opt_e $opt_c $opt_l $opt_p $opt_n);
+
+#
+# Set up signal handling.
+#
+$SIG{'ALRM'} = sub { die "socket timeout" };
+$SIG{'QUIT'} = 'cleanup';
+$SIG{'HUP'}  = 'cleanup';
+$SIG{'INT'}  = 'cleanup';
+$SIG{'KILL'} = 'cleanup';
+$SIG{'TERM'} = 'cleanup';
+
+#
+# Global variables.
+#
+my ($host,$port,$handle,$baseline,$beep,$use_ssl,$login_o);
+my ($user,$password,$logged_in,$repsonse,$new_messages,$sleep,$sleepms);
+my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
+my ($prog,$conffile,$nodecor,$pos_x,$pos_y);
+my ($png_up,$png_down,$png_up_ssl,$png_down_ssl,$png_chk);
+$prog = $0;
+$prog =~ s,.*/,,g;
+$conffile = "$ENV{'HOME'}/.imapbiffrc";
+
+# 
+# Set defaults.
+#
+$host      = "";
+$handle    = 0;
+$baseline  = 0;
+$beep      = 1;
+$use_ssl   = 0;
+$logged_in = 0;
+$password  = 0;
+$login_o   = 0;
+$nodecor   = 0;
+
+$png_up       = 'up.png';
+$png_down     = 'down.png';
+$png_up_ssl   = 'up_ssl.png';
+$png_down_ssl = 'down_ssl.png';
+$png_chk      = 'check.png';
+
+#
+# Get user supplied parameters.  The command line overrides any config file
+#
+help() unless getopts("h:u:s:c:p:dqeln");
+$conffile = $opt_c if ($opt_c);
+if ( -f $conffile) {
+	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
+	while(<RC>) {
+		$host         = $1 if /^host\s+(\S+)/;
+                $port         = $1 if /^port\s+(\d+)/;
+		$user         = $1 if /^user\s+(\S+)/;
+		$sleep        = $1 if /^sleep\s+(\d+)/;
+		$password     = $1 if /^password\s+(\d+)/;
+                $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
+                $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
+		$beep         = 0  if /^nobeep/;
+		$use_ssl      = 1  if /^use_ssl/;
+		$login_o      = 1  if /^login/;
+                $nodecor      = 1  if /^nodecor/;
+                $png_up       = $1 if /^png_mail\s+(\S+)/;
+                $png_down     = $1 if /^png_nomail\s+(\S+)/;
+                $png_up_ssl   = $1 if /^png_mail_ssl\s+(\S+)/;
+                $png_down_ssl = $1 if /^png_nomail_ssl\s+(\S+)/;
+                $png_chk      = $1 if /^png_checking\s+(\S+)/;
+	}
+	close(RC);
+}
+$use_ssl = 1 if ($opt_e);
+$host    = $opt_h if ($opt_h);
+$port    = $opt_p if ($opt_p);
+$port    = 993 if (!$port && $use_ssl);
+$port    = 143 if (!$port);
+$user    = $opt_u if ($opt_u);
+$user    = $ENV{'USER'} if (! $user);
+$sleep   = $opt_s if ($opt_s);
+$sleep   = 120 if (! $sleep);
+$beep    = 0 if ($opt_q);
+$login_o = 1 if ($opt_l);
+$nodecor = 1 if ($opt_n);
+$sleepms = $sleep * 1000;
+help() if (! $host);
+if ($use_ssl) {
+	print STDERR "Using SSL.\n" if $opt_d;
+	require IO::Socket::SSL;
+}
+
+#
+# Become a daemon process and start going to work, unless in debug.
+#
+if (! $opt_d) {
+	my $pid = fork;
+	exit if $pid;
+	die "Couldn't fork: $!\n" unless defined($pid);
+	POSIX::setsid() or error("$prog: Can't start a new session: $!",1);
+}
+$MW = new MainWindow;
+$MW->title("imapbiff");
+$MW->iconname("imapbiff");
+$MW->wm("geometry", "58x58+$pos_x+$pos_y");
+$MW->resizable(0,0);
+$MW->overrideredirect($nodecor);
+$frame = $MW->Frame->pack(-expand => 'true', -fill => 'both');
+$canvas = $frame->Canvas(-width  => "48",
+                         -height => "48",
+                         -bd     => 10,
+                         -relief => "sunken",
+                         )->pack(-expand=>'yes', -fill=>'both');
+$button = $canvas->Button(-command => sub { down(); });
+$canvas->create( "window", "0", "0",
+                 -window => $button,
+                 -anchor => 'nw',
+                );
+define_pixmaps();
+$button->bind("<Button-3>", \&check_now);
+$button->bind("<Button-2>", \&exit);
+$button->configure(-image => $down);
+$current = \$down;
+$repeat  = $button->repeat(1000, \&update);
+print STDERR "repeat set to 1sec for now.\n" if $opt_d;
+MainLoop;
+
+#
+# Subroutine to update status.
+#
+sub update {
+	my ($new_messages);
+	$button->configure(-image => $checking);
+	DoOneEvent;
+	DoOneEvent;
+	while (! $handle) {
+		setup_socket();
+	}
+	print STDERR "Socket is setup.\n" if $opt_d;
+	if ($logged_in) {
+		$new_messages = check_imap();
+	} else {
+		print STDERR "canceling repeat.\n" if $opt_d;
+		$button->afterCancel($repeat);
+		$repeat = 0;
+		while (! $logged_in) {
+			if (!$password) { get_password(); }
+			login();
+		}
+		$new_messages = check_imap();
+		$repeat = $button->repeat($sleepms, \&update);
+		print STDERR "repeat set to $sleepms.\n" if $opt_d;
+	}
+        logout() if $login_o;
+	$new_messages = 0 if (! $new_messages);
+	if ($new_messages eq "-1") {
+		print STDERR "check_imap returned an error, no updates.\n" if $opt_d;
+	} elsif ($baseline == $new_messages) {
+		print STDERR "no changes...\n" if $opt_d;
+	} elsif ($new_messages > $baseline) {
+		$current  = \$up;
+		$button->bell if ($beep);
+		$baseline = $new_messages;
+		print STDERR "biff set, baseline set to $baseline\n" if $opt_d;
+	} else {
+		$current  = \$down;
+		$baseline = $new_messages;
+		print STDERR "biff unset, baseline set to $baseline\n" if $opt_d;
+	}
+	if ($new_messages >= 0) {
+		print STDERR "You have $new_messages new message(s)\n" if $opt_d;
+	}
+	$button->configure(-image => $$current);
+	return 1;
+}
+
+#
+# Subroutine to initiate a check from a button 2 press.
+#
+sub check_now {
+	print STDERR "doing an immediate check\n" if $opt_d;
+	$button->afterCancel($repeat);
+	$repeat = 0;
+	update();
+	$repeat = $button->repeat($sleepms, \&update);
+	return 1;
+}
+
+#
+# Subroutine to setup socket handle.
+#
+sub setup_socket {
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		print STDERR "Setting up socket..." if $opt_d;
+		if ($use_ssl) {
+			print STDERR "Using ssl..." if $opt_d;
+			$handle = IO::Socket::SSL->new(Proto           => "tcp",
+			                               SSL_verify_mode => 0x00,
+                                                       PeerAddr        => $host,
+			                               PeerPort        => $port,
+		                               	)
+			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		} else {
+			$handle = IO::Socket::INET->new(Proto    => "tcp",
+			                                PeerAddr => $host,
+                                                        PeerPort => $port,
+		                               	)
+			or error("$prog: Can't connect to port $port on $host: $!",0), return;
+		}
+		$handle->autoflush(1);    # So output gets there right away.
+		print STDERR ".done\n" if $opt_d;
+		receive();
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return;
+		} else {
+			error("$prog: $@",0);
+			return;
+		}
+	} 
+	return 1;
+}
+
+#
+# Subroutine to login to the mailbox.
+# 
+sub login {
+	my ($response,$success);
+	$logged_in = 0;
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		send_data("A001 LOGIN \"$user\" \"$password\"","\"$user\"");
+		while (1) {
+			($success,$response) = receive();
+			if (! $success) {
+				return 0;
+			}
+			last if $response =~ /LOGIN|OK/;
+		}
+		if ($response =~ /fail|BAD/) {
+			return 0;
+		} else {
+			$logged_in = 1;
+		}
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return 0;
+		} else {
+			error("$prog: $@",0);
+			return 0; 
+		}
+	} 
+	return 1;
+}
+
+#
+# Subroutine that does check of imap mailbox.
+#
+sub check_imap {
+	my ($response,$success);
+	# Set an alarm in case we can not connect or get hung.  Older versions
+	# the IO::Socket perl module caused errors with the alarm we set before
+	# setting up the socket.  If this program dies in debug mode saying:
+	# "Alarm clock", then you can probably fix it by upgrading your perl
+	# IO module.
+	eval {
+		alarm 30;
+		send_data("A003 STATUS INBOX (UNSEEN)");
+		while (1) {
+			($success,$response) = receive();
+			if (! $success) {
+				return "-1";
+			}
+			last if $response =~ /STATUS\s+.*?\s+\(UNSEEN/;
+		}
+		($new_messages) = $response =~ /\(UNSEEN\s+(\d+)\)/;
+		alarm 0;
+	};
+	if ($@) {
+		alarm 0;
+		if ($@ =~ /timeout/) {
+			alarm();
+			return "-1";
+		} else {
+			error("$prog: $@",0);
+			return "-1";
+		}
+	} 
+	return $new_messages;
+}
+
+#
+# Subroutine to put flag down and save baseline status.
+#
+sub down {
+	$button->configure(-image => $down);
+	$current  = \$down;
+	$baseline = $new_messages if ($new_messages);
+	print STDERR "baseline set to $baseline\n" if $opt_d;
+	return 1;
+}
+
+#
+# Subroutine to get user's password.
+#
+sub get_password {
+	my ($w1,$entry);
+	$w1 = $MW->Toplevel;
+	$w1->Message(-bg  => "black",
+                 -fg      => "green",
+                 -width   => "400",
+                 -justify => "center",
+                 -text    => "Enter password for\n$user at $host",
+                 )->pack(-side => 'top', -fill => 'both');
+	$entry = $w1->Entry(-relief=>"sunken",
+                    -bg    => "grey",
+                    -fg    => "black",
+                    -width => "30",
+                    -show  => "*",
+                   )->pack(-side => 'top');
+	$w1->Button(-text => "OK",
+                -command  => sub { $password=$entry->get; $w1->destroy },
+               )->pack(-side => 'bottom');
+	$MW->waitVariable(\$password);
+	DoOneEvent;
+	return 1;
+}
+
+#
+# Subroutine to send a line to the imap server.
+# Block everything after $block.
+#
+sub send_data {
+	my ($line,$block) = (@_);
+	print $handle "$line\r\n";
+	$line =~ s/(.*$block).*/$1 ----/ if ($block);
+	print STDERR "sent: $line\n" if $opt_d;
+	return 1;
+}
+
+#
+# Subroutine to get a response from the imap server and print.
+# that response if in debug mode.
+#
+sub receive {
+	my ($response,$success);
+	$response = "";
+	$success  = 0;
+	chomp($response = <$handle>);
+	if ($response) {
+		print STDERR "got: $response\n" if $opt_d;
+		$success = 1;
+	} else {
+		print STDERR "no response!\n" if $opt_d;
+	}
+	return ($success,$response);
+}
+
+#
+# Subroutine to display and error message in a text box and exit.
+#
+sub error {
+	my ($error,$fatal) = (@_);
+	my ($w1,$wait);
+	$button->afterCancel($repeat);
+	$w1 = $MW->Toplevel;
+	$w1->Message(-width => "300",
+	             -text  => "$error",
+                 )->pack(-side => 'top');
+	if ($fatal) {
+		$w1->Button(-text    => "OK",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$MW->destroy;
+		exit;
+	} else {
+		$w1->Button(-text    => "Continue",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$w1->Button(-text    => "Exit",
+		            -command => "exit",
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$w1->destroy;
+		$repeat = $button->repeat($sleepms, \&update);
+		$handle = 0;
+		return 1;
+	}	
+}
+
+#
+# Subroutine to call when alarm times out.
+#
+sub alarm {
+	print STDERR "Alarm went off!\n" if $opt_d;
+	return 1;
+}
+#
+# Subroutine to logout from imap mailbox.
+#
+sub logout
+{
+   if ($handle)
+   {
+      send_data("A999 LOGOUT");
+      close($handle);
+   }
+   $handle=0;
+   $logged_in=0;
+   print STDERR "Logging out from the server.\n" if $opt_d;
+}
+
+#
+# Subroutine to clean up and exit if we are signalled.
+#
+sub cleanup {
+        logout();
+	print STDERR "Exiting by user request.\n";
+	exit;
+}
+
+#
+# Subroutine to print help screen and exit.
+#
+sub help {
+	die "Usage: $prog [-c config_file] [-h host] [-p port] [-u username] [-s sleep_seconds] [-e] [-q] [-d] [-l] [-n]\n";
+}
+
+#
+# Subroutine that puts PNG data into place.
+#
+sub define_pixmaps {
+	if ($use_ssl) {
+		$up = $canvas->Photo(-format => 'png', -file => $png_up_ssl);
+
+		$down = $canvas->Photo(-format => 'png', -file => $png_down_ssl);
+
+	} else {
+		$up = $canvas->Photo(-format => 'png', -file => $png_up);
+
+		$down = $canvas->Photo(-format => 'png', -file => $png_down);
+	}
+	$checking = $canvas->Photo(-format => 'png', -file => $png_chk);
+
+	return 1;
+}
