@@ -1,0 +1,263 @@
+#!/usr/bin/perl -w
+
+#
+# Version 1.0
+#
+# rssbiff: check for new RSS feeds
+#
+# rssbiff is a fork of imapbiff2
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+# Copyright 2000 Michael Arndt (imapbiff)
+# Copyright 2007 Enrique D. Bosch 'presi'
+
+use strict;
+use XML::Feed;
+use DateTime::Infinite;
+use Getopt::Std;
+use POSIX;
+use Tk;
+use Tk::PNG;
+use vars qw($opt_u $opt_d $opt_s $opt_q $opt_c $opt_n $opt_a);
+
+#
+# Set up signal handling.
+#
+$SIG{'ALRM'} = sub { die "socket timeout" };
+$SIG{'QUIT'} = 'cleanup';
+$SIG{'HUP'}  = 'cleanup';
+$SIG{'INT'}  = 'cleanup';
+$SIG{'KILL'} = 'cleanup';
+$SIG{'TERM'} = 'cleanup';
+
+#
+# Global variables.
+#
+my ($url,$baseline,$beep);
+my ($new_messages,$last,$sleep,$sleepms);
+my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
+my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom);
+my ($png_up,$png_down,$png_chk);
+$prog = $0;
+$prog =~ s,.*/,,g;
+$conffile = "$ENV{'HOME'}/.rssbiffrc";
+
+# 
+# Set defaults.
+#
+$url       = "";
+$baseline  = 0;
+$beep      = 1;
+$nodecor   = 0;
+
+$png_up       = 'up.png';
+$png_down     = 'down.png';
+$png_chk      = 'check.png';
+
+$last=DateTime::Infinite::Future->new;
+
+#
+# Get user supplied parameters.  The command line overrides any config file
+#
+help() unless getopts("u:s:c:dqna");
+$conffile = $opt_c if ($opt_c);
+if ( -f $conffile) {
+	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
+	while(<RC>) {
+		$url          = $1 if /^url\s+(\S+)/;
+		$sleep        = $1 if /^sleep\s+(\d+)/;
+                $pos_x        = $1 if /^pos\s+(\d+)x(\d+)/;
+                $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
+		$beep         = 0  if /^nobeep/;
+                $nodecor      = 1  if /^nodecor/;
+                $png_up       = $1 if /^png_mail\s+(\S+)/;
+                $png_down     = $1 if /^png_nomail\s+(\S+)/;
+                $png_chk      = $1 if /^png_checking\s+(\S+)/;
+                $last         = DateTime::Infinite::Past->new if /^allnew/;
+	}
+	close(RC);
+}
+$url     = $opt_u if ($opt_u);
+$sleep   = $opt_s if ($opt_s);
+$sleep   = 120 if (! $sleep);
+$beep    = 0 if ($opt_q);
+$nodecor = 1 if ($opt_n);
+$sleepms = $sleep * 1000;
+$last    = DateTime::Infinite::Past->new if ($opt_a);
+help() if (! $url);
+
+#
+# Become a daemon process and start going to work, unless in debug.
+#
+if (! $opt_d) {
+	my $pid = fork;
+	exit if $pid;
+	die "Couldn't fork: $!\n" unless defined($pid);
+	POSIX::setsid() or error("$prog: Can't start a new session: $!",1);
+}
+$MW = new MainWindow;
+$MW->title("rssbiff");
+$MW->iconname("rssbiff");
+$geom='58x58';
+if ($pos_x && $pos_y) { $geom .= "+$pos_x+$pos_y"; }
+$MW->wm("geometry", $geom);
+$MW->resizable(0,0);
+$MW->overrideredirect($nodecor);
+$frame = $MW->Frame->pack(-expand => 'true', -fill => 'both');
+$canvas = $frame->Canvas(-width  => "48",
+                         -height => "48",
+                         -bd     => 10,
+                         -relief => "sunken",
+                         )->pack(-expand=>'yes', -fill=>'both');
+$button = $canvas->Button(-command => sub { down(); });
+$canvas->create( "window", "0", "0",
+                 -window => $button,
+                 -anchor => 'nw',
+                );
+define_pixmaps();
+$button->bind("<Button-3>", \&check_now);
+$button->bind("<Button-2>", \&exit);
+$button->configure(-image => $down);
+$current = \$down;
+$repeat  = $button->repeat(1000, \&update);
+print STDERR "repeat set to 1sec for now.\n" if $opt_d;
+MainLoop;
+
+#
+# Subroutine to update status.
+#
+sub update {
+	my ($new_messages);
+	$button->configure(-image => $checking);
+	DoOneEvent;
+	DoOneEvent;
+        $button->afterCancel($repeat);
+        $repeat = 0;
+	$new_messages = check_feed();
+        $repeat = $button->repeat($sleepms, \&update);
+        print STDERR "repeat set to $sleepms.\n" if $opt_d;
+	$new_messages = 0 if (! $new_messages);
+	if ($new_messages eq "-1") {
+		print STDERR "check_feed returned an error, no updates.\n" if $opt_d;
+	} elsif ($baseline == $new_messages) {
+		print STDERR "no changes...\n" if $opt_d;
+	} elsif ($new_messages > $baseline) {
+		$current  = \$up;
+		$button->bell if ($beep);
+		$baseline = $new_messages;
+		print STDERR "biff set, baseline set to $baseline\n" if $opt_d;
+	} else {
+		$current  = \$down;
+		$baseline = $new_messages;
+		print STDERR "biff unset, baseline set to $baseline\n" if $opt_d;
+	}
+	if ($new_messages >= 0) {
+		print STDERR "You have $new_messages new message(s)\n" if $opt_d;
+	}
+	$button->configure(-image => $$current);
+	return 1;
+}
+
+#
+# Subroutine to initiate a check from a button 2 press.
+#
+sub check_now {
+	print STDERR "doing an immediate check\n" if $opt_d;
+	update();
+	return 1;
+}
+#
+# Subroutine that does check the feed
+#
+sub check_feed
+{
+    my $feed = XML::Feed->parse(URI->new($url));
+    print STDERR 'Retrieving '.$feed->title." feed\n" if $opt_d;
+    my @items=$feed->entries;
+    foreach my $item (@items)
+    {
+      if ($item->issued > $last ) { $new_messages++; }
+    }
+    $last=$items[0]->issued;
+    return $new_messages;
+}
+#
+# Subroutine to put flag down and save baseline status.
+#
+sub down {
+	$button->configure(-image => $down);
+	$current  = \$down;
+	$baseline = $new_messages if ($new_messages);
+	print STDERR "baseline set to $baseline\n" if $opt_d;
+	return 1;
+}
+#
+# Subroutine to display and error message in a text box and exit.
+#
+sub error {
+	my ($error,$fatal) = (@_);
+	my ($w1,$wait);
+	$button->afterCancel($repeat);
+	$w1 = $MW->Toplevel;
+	$w1->Message(-width => "300",
+	             -text  => "$error",
+                 )->pack(-side => 'top');
+	if ($fatal) {
+		$w1->Button(-text    => "OK",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$MW->destroy;
+		exit;
+	} else {
+		$w1->Button(-text    => "Continue",
+		            -command => sub { $wait=1; },
+               		)->pack(-side => 'bottom');
+		$w1->Button(-text    => "Exit",
+		            -command => "exit",
+               		)->pack(-side => 'bottom');
+		$MW->waitVariable(\$wait);
+		$w1->destroy;
+		$repeat = $button->repeat($sleepms, \&update);
+		return 1;
+	}	
+}
+#
+# Subroutine to clean up and exit if we are signalled.
+#
+sub cleanup {
+	print STDERR "Exiting by user request.\n";
+	exit;
+}
+
+#
+# Subroutine to print help screen and exit.
+#
+sub help {
+	die "Usage: $prog [-c config_file] [-u URL] [-s sleep_seconds] [-q] [-d] [-n] [-a]\n";
+}
+
+#
+# Subroutine that puts PNG data into place.
+#
+sub define_pixmaps {
+        $up = $canvas->Photo(-format => 'png', -file => $png_up);
+
+        $down = $canvas->Photo(-format => 'png', -file => $png_down);
+
+	$checking = $canvas->Photo(-format => 'png', -file => $png_chk);
+
+	return 1;
+}
