@@ -30,7 +30,8 @@ use Getopt::Std;
 use POSIX;
 use Tk;
 use Tk::PNG;
-use vars qw($opt_u $opt_d $opt_s $opt_q $opt_c $opt_n $opt_a);
+use Tk::Balloon;
+use vars qw($opt_u $opt_d $opt_s $opt_q $opt_c $opt_n $opt_a $opt_t);
 
 #
 # Set up signal handling.
@@ -48,7 +49,7 @@ $SIG{'TERM'} = 'cleanup';
 my ($url,$baseline,$beep);
 my ($new_messages,$last,$sleep,$sleepms);
 my ($MW,$frame,$button,$up,$down,$checking,$canvas,$repeat,$current);
-my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom);
+my ($prog,$conffile,$nodecor,$pos_x,$pos_y,$geom,$inf,$tip,$tip_seen);
 my ($png_up,$png_down,$png_chk);
 $prog = $0;
 $prog =~ s,.*/,,g;
@@ -61,6 +62,9 @@ $url       = "";
 $baseline  = 0;
 $beep      = 1;
 $nodecor   = 0;
+$tip       = 0;
+$tip_seen  = 0;
+$new_messages = 0;
 
 $png_up       = 'up.png';
 $png_down     = 'down.png';
@@ -71,7 +75,7 @@ $last=DateTime::Infinite::Future->new;
 #
 # Get user supplied parameters.  The command line overrides any config file
 #
-help() unless getopts("u:s:c:dqna");
+help() unless getopts("u:s:c:dqnat");
 $conffile = $opt_c if ($opt_c);
 if ( -f $conffile) {
 	open (RC, $conffile) or error("$prog: Error opening $conffile",1);
@@ -85,6 +89,7 @@ if ( -f $conffile) {
                 $png_up       = $1 if /^png_mail\s+(\S+)/;
                 $png_down     = $1 if /^png_nomail\s+(\S+)/;
                 $png_chk      = $1 if /^png_checking\s+(\S+)/;
+                $tip          = 1  if /^tip/;
                 $last         = DateTime::Infinite::Past->new if /^allnew/;
 	}
 	close(RC);
@@ -95,6 +100,7 @@ $sleep   = 120 if (! $sleep);
 $beep    = 0 if ($opt_q);
 $nodecor = 1 if ($opt_n);
 $sleepms = $sleep * 1000;
+$tip     = 1 if ($opt_t);
 $last    = DateTime::Infinite::Past->new if ($opt_a);
 help() if (! $url);
 
@@ -130,6 +136,7 @@ define_pixmaps();
 $button->bind("<Button-3>", \&check_now);
 $button->bind("<Button-2>", \&exit);
 $button->configure(-image => $down);
+$inf=$MW->Balloon(-background=>'yellow') if $tip;
 $current = \$down;
 $repeat  = $button->repeat(1000, \&update);
 print STDERR "repeat set to 1sec for now.\n" if $opt_d;
@@ -166,7 +173,13 @@ sub update {
 	if ($new_messages >= 0) {
 		print STDERR "You have $new_messages new message(s)\n" if $opt_d;
 	}
-	$button->configure(-image => $$current);
+        if ($tip_seen>$new_messages)
+        {
+          $tip_seen = $new_messages;
+          print STDERR "seen (tip) set to $tip_seen\n" if $opt_d;
+        }
+ 	$button->configure(-image => $$current);
+        $inf->attach($button,-initwait=>0,-balloonmsg=>($new_messages-$tip_seen)) if $tip;
 	return 1;
 }
 
@@ -191,6 +204,7 @@ sub check_feed
       if ($item->issued > $last ) { $new_messages++; }
     }
     $last=$items[0]->issued;
+    print STDERR 'Last item date: '.$last."\n" if $opt_d;
     return $new_messages;
 }
 #
@@ -201,6 +215,9 @@ sub down {
 	$current  = \$down;
 	$baseline = $new_messages if ($new_messages);
 	print STDERR "baseline set to $baseline\n" if $opt_d;
+        $tip_seen = $baseline;
+        print STDERR "seen (tip) set to $tip_seen\n" if $opt_d;
+        $inf->attach($button,-initwait=>0,-balloonmsg=>($new_messages-$tip_seen)) if $tip;
 	return 1;
 }
 #
