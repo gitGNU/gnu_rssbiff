@@ -86,8 +86,8 @@ if ( -f $conffile) {
                 $pos_y        = $2 if /^pos\s+(\d+)x(\d+)/;
 		$beep         = 0  if /^nobeep/;
                 $nodecor      = 1  if /^nodecor/;
-                $png_up       = $1 if /^png_mail\s+(\S+)/;
-                $png_down     = $1 if /^png_nomail\s+(\S+)/;
+                $png_up       = $1 if /^png_post\s+(\S+)/;
+                $png_down     = $1 if /^png_nopost\s+(\S+)/;
                 $png_chk      = $1 if /^png_checking\s+(\S+)/;
                 $tip          = 1  if /^tip/;
                 $last         = DateTime::Infinite::Past->new if /^allnew/;
