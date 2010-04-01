@@ -53,11 +53,11 @@ You can also specify command line options, which override the .rssbiffrc
 options: 
 
 -d
-  debug mode: in this mode, imapbiff will not run as a daemon, but rather print
+  debug mode: in this mode, rssbiff will not run as a daemon, but rather print
   out debugging messages to the terminal you start it from.
 -q 
   quiet mode: do not beep when you have new messages. Identical to having a
-  line with "nobeep" on it in the .imapbiffrc file.
+  line with "nobeep" on it in the .rssbiffrc file.
 -u <url>
   use <url> as the HTTP server for retrieving the feed. No default, this must be 
   specified either in the .rssbiffrc or on the command line.
