@@ -1,0 +1,113 @@
+Current Version: 1.0
+
+What is rssbiff?
+-----------------
+rssbiff is a small perl/tk program that notifies you of new items in a
+RSS/Atom feed by HTTP. It uses images similar to those of the classic xbiff 
+program. It works similar to xbiff, except it is only used to check for 
+RSS/Atom feeds. When rssbiff is executed it set all items as read (unless
+you set -a/allnew option), from that moment if a new item arrive it will beep 
+and raise the flag. Whenever it is querying the HTTP server, a "?" is displayed
+to indicate that it is checking for messages.
+
+rssbiff is a fork of imapbiff (it's based on its sources).
+
+Requirements
+------------
+- perl.
+- The Tk perl module (DOES NOT come with most perl installations).
+- The Getopt module (comes with most perl installations).
+- The IO perl module (comes with most perl installations).
+- The XML::Feed module for retrieving and parsing feeds.
+
+Installation
+------------
+Check the first line of rssbiff to see if it is pointing at the correct
+location of your perl interpreter. If not, change this line so that it
+contains a correct path to perl.
+
+Usage
+-----
+You can either pass command line arguments to rssbiff, or use a .rssbiffrc
+file in your home directory. The format of the .rssbiffrc file is:
+
+url <HTTP server URL>
+sleep <number of seconds to sleep between checks>
+nobeep
+nodecor (overrides window manager frame/decoration)
+tip (add a tip [popup] miniwindow shows number of messages when mouse is over)
+pos <X>x<Y> (initial X,Y position)
+png_checking   <file> (PNG icon while checking, default: check.png)
+png_post       <file> (PNG icon when there is new posts, default: up.png)
+png_nopost     <file> (PNG icon when there is no new posts, default: down.png)
+allnew (set all existing posts as unread)
+
+Example .rssbiffrc:
+
+url http://my.feed.example.org/rss
+sleep 600
+
+This would retrieve posts at http://my.feed.host.org/rss every 600 seconds.
+
+You can also specify command line options, which override the .rssbiffrc
+options: 
+
+-d
+  debug mode: in this mode, imapbiff will not run as a daemon, but rather print
+  out debugging messages to the terminal you start it from.
+-q 
+  quiet mode: do not beep when you have new messages. Identical to having a
+  line with "nobeep" on it in the .imapbiffrc file.
+-u <url>
+  use <url> as the HTTP server for retrieving the feed. No default, this must be 
+  specified either in the .rssbiffrc or on the command line.
+-s <sleep>
+  sleep: sleep for <sleep> seconds between checks.  Defaults to 120 seconds.
+-c <file>
+  Use alternative config file
+-n
+  Overrides window manager frame/decoration. Equivalent to "nodecor" config 
+  option.
+-t
+  Add a popup small window when mouse is over that shows number of unread 
+  mails. Equivalent to "tip" config option.
+-a
+  Set all exiting posts as unread so the flag will be up as soon as rssbiff
+  is executed. Equivalent to "allnew" config option.
+
+While rssbiff is running, you can use the mouse buttons for the folllowing:
+
+Button 1 (left): click on the pixmap with button 1 to tell rssbiff you have
+read all the posts (with your favourite RSS reader), this will lower the
+flag. If any new post arrive, the flag will go up again.
+
+Button 2 (middle): click on the pixmap with button 2 to exit from rssbiff.
+
+Button 3 (right): click on the pixmap with button 3 to initiate an immediate
+check of your feed.
+
+To-do
+-----
+- Get prettier pixmaps!
+- Save rssbiff state between executions
+
+Author and Homepage (of rssbiff)
+--------------------------------
+Author: Enrique D. Bosch <presidev at gmail.com>
+Project page: http://www.assembla.com/spaces/rssbiff
+
+Author and Homepage (of imapbiff, rssbiff ancestor)
+----------------------------------------------------
+Author: Michael Arndt
+Email: marndt@bulldog.tzo.org
+Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
+Version 2.0: Enrique D. Bosch <presidev at gmail.com>
+Project page: http://www.assembla.com/spaces/imapbiff
+
+Thanks you's:
+-------------
+I got the pixmaps for the mailbox from a color xbiff program.  I don't know what
+it was, but if anyone recognizes the pixmaps, let me know and I will give credit
+to the original creator of the pixmaps.  
+
+See the CHANGELOG file for some more Thank you's.

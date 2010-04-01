@@ -1,0 +1,15 @@
+# Configuration example for rssbiff
+# should be under your home (~/.rssbiffrc)
+# or specified with -c option
+
+url http://my.feed.example.org/rss
+sleep 600
+nobeep 
+#pos 725x710
+#nodecor
+#tip
+#allnew
+
+#png_checking   check.png
+#png_post       up.png
+#png_nopost     down.png
