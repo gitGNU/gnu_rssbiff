@@ -1,3 +1,25 @@
+
+rssbiff: check for new RSS feeds
+
+rssbiff is a fork of imapbiff 2.0
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+Copyright (C) 2000 Michael Arndt (imapbiff)
+Copyright (C) 2007,2008,2010 Enrique D. Bosch 'presi'
+
+
 Current Version: 1.0
 
 What is rssbiff?
@@ -10,7 +32,7 @@ you set -a/allnew option), from that moment if a new item arrive it will beep
 and raise the flag. Whenever it is querying the HTTP server, a "?" is displayed
 to indicate that it is checking for messages.
 
-rssbiff is a fork of imapbiff (it's based on its sources).
+rssbiff is a fork of imapbiff 2.0 (it's based on its sources).
 
 Requirements
 ------------
@@ -19,6 +41,7 @@ Requirements
 - The Getopt module (comes with most perl installations).
 - The IO perl module (comes with most perl installations).
 - The XML::Feed module for retrieving and parsing feeds.
+- The DateTime::Infinite module
 
 Installation
 ------------
@@ -86,28 +109,12 @@ Button 2 (middle): click on the pixmap with button 2 to exit from rssbiff.
 Button 3 (right): click on the pixmap with button 3 to initiate an immediate
 check of your feed.
 
+Media files
+-----------
+The images for the mailbox are colored versions of xbiff bitmaps under X11 
+license.
+
 To-do
 -----
 - Get prettier pixmaps!
 - Save rssbiff state between executions
-
-Author and Homepage (of rssbiff)
---------------------------------
-Author: Enrique D. Bosch <presidev at gmail.com>
-Project page: http://www.assembla.com/spaces/rssbiff
-
-Author and Homepage (of imapbiff, rssbiff ancestor)
-----------------------------------------------------
-Author: Michael Arndt
-Email: marndt@bulldog.tzo.org
-Home Page: http://bulldog.tzo.org/imapbiff/imapbiff.html
-Version 2.0: Enrique D. Bosch <presidev at gmail.com>
-Project page: http://www.assembla.com/spaces/imapbiff
-
-Thanks you's:
--------------
-I got the pixmaps for the mailbox from a color xbiff program.  I don't know what
-it was, but if anyone recognizes the pixmaps, let me know and I will give credit
-to the original creator of the pixmaps.  
-
-See the CHANGELOG file for some more Thank you's.
